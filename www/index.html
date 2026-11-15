@@ -20,8 +20,8 @@ button.on{background:linear-gradient(90deg,#4fd8ff88,#7b4dff88)}
 <canvas id="c"></canvas><div id="labels"></div>
 <div id="chips"></div><div id="date"></div><div id="info"></div>
 <div id="bar"></div>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.137.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.137.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 const AUKM=149597870.7,LY=63241.077,J=Math.PI*2,$=s=>document.querySelector(s);
 const renderer=new THREE.WebGLRenderer({canvas:$('#c'),antialias:true,logarithmicDepthBuffer:true});
@@ -30,12 +30,19 @@ const scene=new THREE.Scene();
 const cam=new THREE.PerspectiveCamera(55,1,0.001,1e9);
 cam.position.set(0,140,260);
 const controls=new THREE.OrbitControls(cam,renderer.domElement);
-controls.enableDamping=true;controls.minDistance=0.002;controls.maxDistance=5e6;
+controls.enableDamping=true;controls.minDistance=0.002;controls.maxDistance=5e6;controls.screenSpacePanning=true;controls.zoomSpeed=1.4;
+let panMode=true;
+function setTouch(){controls.touches=panMode?{ONE:THREE.TOUCH.PAN,TWO:THREE.TOUCH.DOLLY_ROTATE}:{ONE:THREE.TOUCH.ROTATE,TWO:THREE.TOUCH.DOLLY_PAN};controls.mouseButtons={LEFT:panMode?THREE.MOUSE.PAN:THREE.MOUSE.ROTATE,MIDDLE:THREE.MOUSE.DOLLY,RIGHT:panMode?THREE.MOUSE.ROTATE:THREE.MOUSE.PAN}}
+setTouch();
+controls.addEventListener('start',()=>{if(panMode&&follow&&performance.now()>flyUntil)follow=null});
 scene.add(new THREE.AmbientLight(0xffffff,0.12));
 scene.add(new THREE.PointLight(0xffffff,1.6,0,0));
 let real=false,t=(Date.now()-Date.UTC(2000,0,1,12))/864e5,speed=1,dir=1,playing=true,measure=false,mA=null,follow=null,flyUntil=0,want=10;
 const TX='https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/';
 const ld=new THREE.TextureLoader();
+const MAPS='https://cdn.jsdelivr.net/gh/ofrohn/threex.planets@master/images/maps/';
+function realTex(m,f,key){ld.load(MAPS+f,t=>{t.anisotropy=4;m[key||'map']=t;if(m.color)m.color.set(0xffffff);m.needsUpdate=true})}
+function ringGeo(a,b){const g=new THREE.RingGeometry(a,b,128,1),p=g.attributes.position,u=g.attributes.uv;for(let i=0;i<p.count;i++){const r=Math.hypot(p.getX(i),p.getY(i));u.setXY(i,(r-a)/(b-a),.5)}return g}
 const mkc=()=>{const c=document.createElement('canvas');c.width=c.height=128;return c};
 function glow(){const c=mkc(),g=c.getContext('2d'),r=g.createRadialGradient(64,64,0,64,64,64);
  r.addColorStop(0,'#fff');r.addColorStop(.25,'rgba(255,255,255,.5)');r.addColorStop(1,'rgba(255,255,255,0)');g.fillStyle=r;g.fillRect(0,0,128,128);return new THREE.CanvasTexture(c)}
@@ -59,7 +66,7 @@ const GN=['planets','moons','orbits','belt','kuiper','stars','bh','nebula','gala
 GN.forEach(k=>{grp[k]=new THREE.Group();scene.add(grp[k])});
 function addEntry(e){e.size=e.size||1;pickables.push(e);const d=document.createElement('div');d.textContent=e.name;$('#labels').appendChild(d);e.lab=d;return e}
 // Sonne
-const sun=new THREE.Mesh(new THREE.SphereGeometry(1,48,32),new THREE.MeshBasicMaterial({map:bandTex(0xffb020,9,.5)}));scene.add(sun);
+const sunMat=new THREE.MeshBasicMaterial({map:bandTex(0xffb020,9,.5)});const sun=new THREE.Mesh(new THREE.SphereGeometry(1,48,32),sunMat);scene.add(sun);realTex(sunMat,'sunmap.jpg');
 const sunGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:GL,color:0xffaa33,blending:THREE.AdditiveBlending,depthWrite:false}));scene.add(sunGlow);
 const sunE=addEntry({name:'Sonne',type:'Stern (G2V)',grp:{get visible(){return true}},obj:sun,au:0,real:()=>new THREE.Vector3(),pos:()=>sun.position,wiki:'Sun',info:'Enthält 99,86 % der Masse des Sonnensystems. Kerntemperatur ~15 Mio. °C, Oberfläche ~5500 °C.',km:696340});
 // Planeten, Zwergplaneten
@@ -79,11 +86,12 @@ const D=[
 ['Haumea',43.1,816,103410,0xdddddd,1,.1,'Zwergplanet, durch schnelle Rotation (~4 h) eiförmig.','Haumea'],
 ['Makemake',45.6,715,112897,0xcc9a77,1,.1,'Zwergplanet im Kuipergürtel mit rötlicher Oberfläche.','Makemake']];
 const bodies=[];
+const TXN={Merkur:'mercurymap.jpg',Venus:'venusmap.jpg',Mars:'marsmap.jpg',Jupiter:'jupitermap.jpg',Saturn:'saturnmap.jpg',Uranus:'uranusmap.jpg',Neptun:'neptunemap.jpg',Pluto:'plutomap.jpg',Ceres:'ceresmap.jpg',Vesta:'vestamap.jpg'};
 D.forEach(([n,au,km,p,c,bn,rough,info,wiki])=>{
- const m=new THREE.Mesh(new THREE.SphereGeometry(1,64,48),new THREE.MeshStandardMaterial({map:n=='Erde'?ld.load(TX+'earth_atmos_2048.jpg'):bandTex(c,bn*3,rough),roughness:.9}));
+ const mat=new THREE.MeshStandardMaterial({map:n=='Erde'?ld.load(TX+'earth_atmos_2048.jpg'):bandTex(c,bn*3,rough),roughness:.9});if(TXN[n])realTex(mat,TXN[n]);const m=new THREE.Mesh(new THREE.SphereGeometry(1,64,48),mat);
  grp.planets.add(m);
  if(n=='Erde'){const cl=new THREE.Mesh(new THREE.SphereGeometry(1.012,48,32),new THREE.MeshStandardMaterial({map:ld.load(TX+'earth_clouds_1024.png'),transparent:true,opacity:.7,depthWrite:false}));m.add(cl);m.userData.cl=cl}
- if(n=='Saturn'){const r=new THREE.Mesh(new THREE.RingGeometry(1.3,2.4,96),new THREE.MeshBasicMaterial({color:0xcbb98a,side:THREE.DoubleSide,transparent:true,opacity:.75}));r.rotation.x=-Math.PI/2+.47;m.add(r)}
+ if(n=='Saturn'||n=='Uranus'){const sat=n=='Saturn',rm=new THREE.MeshBasicMaterial({color:sat?0xcbb98a:0x9fc4cc,side:THREE.DoubleSide,transparent:true,opacity:.7,depthWrite:false}),r=new THREE.Mesh(ringGeo(sat?1.24:1.64,sat?2.27:2.0),rm);r.rotation.x=-Math.PI/2+(sat?.466:1.5);ld.load(MAPS+(sat?'saturnrings.png':'uranusrings.png'),t=>{rm.map=t;rm.color.set(0xffffff);rm.opacity=1;rm.alphaTest=.02;rm.needsUpdate=true});grp.planets.add(r);m.userData.ring=r}
  const dw=['Pluto','Ceres','Eris','Haumea','Makemake'].includes(n);
  const e=addEntry({name:n,type:n=='Vesta'?'Asteroid':dw?'Zwergplanet':'Planet',grp:grp.planets,obj:m,au,km,p,ph:Math.random()*J,th:0,info,wiki,pos:()=>m.position,real:()=>new THREE.Vector3(au*Math.cos(e.th),0,au*Math.sin(e.th))});
  bodies.push(e);
@@ -100,14 +108,21 @@ const MN=[['Mond',2,384400,1737.4,27.32,'Entfernung ~384.400 km, Licht braucht 1
 ['Triton',7,354759,1353.4,-5.877,'Umläuft Neptun rückwärts, vermutlich eingefangen.','Triton_(moon)']];
 const kc={},moons=MN.map(([n,pi,dk,km,p,info,wiki])=>{
  const par=bodies[pi],k=kc[pi]=(kc[pi]??-1)+1;
- const m=new THREE.Mesh(new THREE.SphereGeometry(1,48,32),new THREE.MeshStandardMaterial({map:n=='Mond'?ld.load(TX+'moon_1024.jpg'):bandTex(0xaaa090,4,.3),roughness:1}));grp.moons.add(m);
+ const mm=new THREE.MeshStandardMaterial({map:n=='Mond'?ld.load(TX+'moon_1024.jpg'):bandTex(0xaaa090,4,.3),roughness:1}),mf={Io:'iomap.jpg',Europa:'europamap.jpg',Ganymed:'ganymedemap.jpg',Kallisto:'callistomap.jpg',Titan:'titanmap.jpg',Triton:'tritonmap.jpg'}[n];if(mf)realTex(mm,mf);const m=new THREE.Mesh(new THREE.SphereGeometry(1,48,32),mm);grp.moons.add(m);
  const e=addEntry({name:n,type:'Mond · '+par.name,grp:grp.moons,obj:m,par,k,dk,km,p:Math.abs(p),pp:p,ph:Math.random()*J,th:0,info,wiki,d:1,pos:()=>m.position,
   real:()=>par.real().add(new THREE.Vector3(dk/AUKM*Math.cos(e.th),0,dk/AUKM*Math.sin(e.th)))});return e});
 // Gürtel
-function belt(n,a0,a1,g,per,col){const pos=new Float32Array(n*3),A=[];for(let i=0;i<n;i++)A.push([a0+Math.random()*(a1-a0),Math.random()*J,(Math.random()-.5)*.15]);
- const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
- g.add(new THREE.Points(geo,new THREE.PointsMaterial({color:col,size:1.6,sizeAttenuation:false})));return{A,geo,per,g}}
-const belts=[belt(5000,2.1,3.3,grp.belt,1680,0xb9a98f),belt(4000,30,50,grp.kuiper,90000,0x8fb9d9)];
+function rockGeo(sd){const g=new THREE.IcosahedronGeometry(1,2),p=g.attributes.position,k=[1+sd*.37,1-sd*.2,.7+sd*.25];
+ for(let i=0;i<p.count;i++){const x=p.getX(i),y=p.getY(i),z=p.getZ(i),n=1+.28*Math.sin(x*3.1+sd)*Math.sin(y*2.7+sd*2)+.18*Math.sin(z*5.3+sd*3)*Math.sin(x*4.1)+.08*Math.sin((x+y+z)*9+sd);p.setXYZ(i,x*n*k[0],y*n*k[1],z*n*k[2])}
+ g.computeVertexNormals();return g}
+const rockTex=ld.load(TX+'moon_1024.jpg');rockTex.wrapS=rockTex.wrapT=THREE.RepeatWrapping;
+const dum=new THREE.Object3D();
+function belt(n,a0,a1,g,per,col,tumble){
+ const A=[],mat=new THREE.MeshStandardMaterial({map:rockTex,color:col,roughness:1}),meshes=[0,1,2].map(k=>{const m=new THREE.InstancedMesh(rockGeo(k+1),mat,Math.ceil(n/3));m.frustumCulled=false;m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);g.add(m);return m});
+ for(let i=0;i<n;i++)A.push({a:a0+Math.random()*(a1-a0),an:Math.random()*J,y:(Math.random()-.5)*.15,s:.4+Math.pow(Math.random(),3)*1.6,rx:Math.random()*6,ry:Math.random()*6,w:(Math.random()-.5)*1.2,k:i%3,i:(i/3)|0});
+ return{A,meshes,per,g,tumble}}
+function placeRocks(b,tm){b.A.forEach(o=>{dum.position.set(o.p[0],o.p[1],o.p[2]);dum.rotation.set(o.rx+(b.tumble?tm*o.w:0),o.ry+(b.tumble?tm*o.w*.7:0),0);dum.scale.setScalar(o.sc);dum.updateMatrix();b.meshes[o.k].setMatrixAt(o.i,dum.matrix)});b.meshes.forEach(m=>m.instanceMatrix.needsUpdate=true)}
+const belts=[belt(1500,2.1,3.3,grp.belt,1680,0xb5a595,true),belt(1200,30,50,grp.kuiper,90000,0x9fb4c8,false)];
 // Katalog: Name, RA°, Dez°, Lichtjahre, Art(s Stern,b Schwarzes Loch,n Nebel,g Galaxie,r Supernova/Überrest,x Exoplaneten), Farbe, Info, Wikipedia, Supernova-Animation
 const C=[
 ['Proxima Centauri',217.43,-62.68,4.24,'s',0xff8a6a,'Nächster Stern zur Sonne, Roter Zwerg. Proxima b liegt in der habitablen Zone.','Proxima_Centauri'],
@@ -197,13 +212,13 @@ function layout(){
  bodies.forEach(b=>{b.size=RAD(b.km);b.obj.scale.setScalar(b.size)});
  moons.forEach(m=>{m.size=RAD(m.km);m.obj.scale.setScalar(m.size);m.d=real?m.dk/149597.87:m.par.size*(2.4+m.k)});
  orbits.forEach(({o,au})=>{const p=[];for(let i=0;i<=256;i++){const a=i/256*J;p.push(R(au)*Math.cos(a),0,R(au)*Math.sin(a))}o.geometry.setAttribute('position',new THREE.Float32BufferAttribute(p,3))});
- belts.forEach(b=>{const p=b.geo.attributes.position.array;b.A.forEach(([a,an,y],i)=>{const r=R(a);p[i*3]=r*Math.cos(an);p[i*3+1]=y*(real?1000:8);p[i*3+2]=r*Math.sin(an)});b.geo.attributes.position.needsUpdate=true});
+ belts.forEach(b=>{b.A.forEach(o=>{const r=R(o.a);o.p=[r*Math.cos(o.an),o.y*(real?1000:8),r*Math.sin(o.an)];o.sc=o.s*(real?(b.tumble?2:60):(b.tumble?.12:.5))});placeRocks(b,0)});
  deep.forEach(s=>{s.obj.position.copy(s.dv).multiplyScalar((140+35*Math.log10(s.ly))*(real?300:1));s.obj.scale.setScalar(real?300:1)});
  probes.forEach(p=>{if(!p.jw)p.obj.position.copy(p.dv).multiplyScalar(R(p.au));p.obj.scale.setScalar(real?200:1)});
 }
 layout();
 function update(){
- bodies.forEach(b=>{b.th=J*t/b.p+b.ph;const r=R(b.au);b.obj.position.set(r*Math.cos(b.th),0,r*Math.sin(b.th));b.obj.rotation.y+=.002;if(b.obj.userData.cl)b.obj.userData.cl.rotation.y+=.0006});
+ bodies.forEach(b=>{b.th=J*t/b.p+b.ph;const r=R(b.au);b.obj.position.set(r*Math.cos(b.th),0,r*Math.sin(b.th));b.obj.rotation.y+=.002;const rr=b.obj.userData.ring;if(rr){rr.position.copy(b.obj.position);rr.scale.setScalar(b.size)}if(b.obj.userData.cl)b.obj.userData.cl.rotation.y+=.0006});
  moons.forEach(m=>{m.th=J*t/m.pp+m.ph;const pp=m.par.obj.position;m.obj.position.set(pp.x+m.d*Math.cos(m.th),0,pp.z+m.d*Math.sin(m.th))});
  const jw=probes[3],ep=earth.obj.position;jw.obj.position.copy(ep).multiplyScalar(1+(real?10:6)/Math.max(ep.length(),1e-6));
  belts.forEach(b=>b.g.rotation.y=-J*t/b.per);
@@ -225,7 +240,7 @@ function animSN(now){if(!sn)return;const u=(now-sn.t0)/10000,k=Math.min(u,1);
 function flyTo(e,dist){follow=e;want=dist||e.size*5;flyUntil=performance.now()+2000}
 function frame(now){
  requestAnimationFrame(frame);const dt=Math.min(.1,(now-(frame.l||now))/1000);frame.l=now;
- if(playing)t+=dir*speed*dt;update();
+ if(playing)t+=dir*speed*dt;update();if((frame.c=(frame.c||0)+1)%2==0)placeRocks(belts[0],now/1000);
  if(follow){const p=follow.pos(),d=p.clone().sub(controls.target);cam.position.add(d);controls.target.copy(p);
   if(now<flyUntil){const off=cam.position.clone().sub(controls.target),L=off.length();cam.position.copy(controls.target).add(off.setLength(L+(want-L)*Math.min(1,dt*3)))}}
  animSN(now);controls.update();renderer.render(scene,cam);
@@ -262,6 +277,7 @@ const flags={names:1};GN.forEach(k=>flags[k]=1);
 const chipDef=[['planets','Planeten'],['moons','Monde'],['orbits','Bahnen'],['belt','Asteroiden'],['kuiper','Kuipergürtel'],['stars','Sterne'],['bh','Schwarze Löcher'],['nebula','Nebel'],['galaxy','Galaxien'],['snr','Supernovae'],['exo','Exoplaneten'],['probe','Sonden'],['names','Namen']];
 chipDef.forEach(([k,n])=>{const b=document.createElement('button');b.textContent=n;b.className='on';b.onclick=()=>{flags[k]=!flags[k];b.className=flags[k]?'on':'off';if(grp[k])grp[k].visible=!!flags[k]};$('#chips').appendChild(b)});
 function btn(txt,fn,cls){const b=document.createElement('button');b.textContent=txt;b.onclick=()=>fn(b);if(cls)b.className=cls;$('#bar').appendChild(b);return b}
+btn('☝ Bewegen',b=>{panMode=!panMode;setTouch();b.textContent=panMode?'☝ Bewegen':'☝ Drehen'},'on');
 btn('⏯',()=>playing=!playing);
 btn('⟲',()=>{dir=-dir});
 [['1 T/s',1],['30 T/s',30],['1 J/s',365.25],['10 J/s',3652.5]].forEach(([n,v])=>btn(n,()=>{speed=v;playing=true}));
